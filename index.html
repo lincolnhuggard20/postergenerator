@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Resident Daily Needs Poster Generator</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+  :root {
+    --navy: #1B2A5B;
+    --blue-bg: #E4EBF7;
+    --green-bg: #E4F0E4;
+    --orange-bg: #FBEBD9;
+    --green-text: #2F6B3A;
+    --orange-text: #C97A2B;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: #f2f2f2;
+    margin: 0;
+    padding: 24px;
+    color: var(--navy);
+  }
+  .app {
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  .panel {
+    background: #fff;
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+  }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: #666; font-size: 14px; margin-bottom: 16px; }
+  label { display: block; font-weight: 600; font-size: 13px; margin: 12px 0 4px; }
+  select, input[type=file] {
+    width: 100%;
+    padding: 8px;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+    font-size: 14px;
+  }
+  button {
+    background: var(--navy);
+    color: #fff;
+    border: none;
+    padding: 10px 18px;
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: pointer;
+    margin-top: 14px;
+    margin-right: 8px;
+  }
+  button:disabled { background: #aaa; cursor: not-allowed; }
+  button.secondary { background: #6b7a99; }
+  .status { font-size: 13px; margin-top: 10px; }
+  .status.ok { color: #2F6B3A; }
+  .status.err { color: #b3261e; }
+
+  /* Poster */
+  #poster-wrap { display: flex; justify-content: center; }
+  .poster {
+    width: 700px;
+    background: #fff;
+    border: 2px solid var(--navy);
+    border-radius: 16px;
+    padding: 30px 34px;
+  }
+  .poster h2 {
+    text-align: center;
+    font-family: 'Segoe Script', 'Brush Script MT', cursive;
+    font-size: 44px;
+    margin: 0 0 6px;
+    color: var(--navy);
+  }
+  .poster .who {
+    text-align: center;
+    font-weight: 700;
+    font-size: 15px;
+    margin-bottom: 16px;
+  }
+  .banner {
+    background: var(--navy);
+    color: #fff;
+    text-align: center;
+    font-family: 'Segoe Script', 'Brush Script MT', cursive;
+    font-size: 20px;
+    padding: 10px;
+    border-radius: 8px;
+    margin-bottom: 22px;
+  }
+  .card {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    border-radius: 14px;
+    padding: 16px 18px;
+    margin-bottom: 16px;
+  }
+  .card .icon { font-size: 32px; line-height: 1; }
+  .card h3 { margin: 0 0 6px; font-size: 17px; }
+  .card ul { margin: 0; padding-left: 20px; }
+  .card li { font-weight: 600; font-size: 14px; margin-bottom: 3px; }
+  .card.blue { background: var(--blue-bg); }
+  .card.green { background: var(--green-bg); }
+  .card.orange { background: var(--orange-bg); }
+  .card.green h3, .card.green li { color: var(--green-text); }
+  .card.orange h3, .card.orange li { color: var(--orange-text); }
+  .footer-thanks {
+    text-align: center;
+    font-family: 'Segoe Script', 'Brush Script MT', cursive;
+    font-style: italic;
+    font-size: 18px;
+    margin-top: 10px;
+  }
+
+  @media print {
+    body { background: #fff; padding: 0; }
+    .panel, .no-print { display: none !important; }
+    #poster-wrap { display: block; }
+    .poster { border: none; width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="panel no-print">
+    <h1>Resident Daily Needs Poster Generator</h1>
+    <div class="sub">Load a CSV export of the Master sheet from CareSummaryDashboard.xlsx. Nothing leaves your browser — this all runs locally.</div>
+
+    <label>1. Choose CSV file (export the "Master" tab as CSV first)</label>
+    <input type="file" id="csvFile" accept=".csv">
+    <div id="loadStatus" class="status"></div>
+
+    <label>2. Wing</label>
+    <select id="wingSelect" disabled><option>Load a CSV first</option></select>
+
+    <label>3. Resident</label>
+    <select id="residentSelect" disabled><option>Load a CSV first</option></select>
+
+    <button id="printBtn" disabled onclick="window.print()">Print / Save as PDF</button>
+  </div>
+
+  <div id="poster-wrap"></div>
+
+</div>
+
+<script>
+let residents = [];
+
+document.getElementById('csvFile').addEventListener('change', function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  Papa.parse(file, {
+    header: true,
+    skipEmptyLines: true,
+    complete: function(results) {
+      residents = results.data.filter(r => r['Resident Name'] && r['Resident Name'].trim() !== '');
+      const statusEl = document.getElementById('loadStatus');
+      if (residents.length === 0) {
+        statusEl.textContent = 'No resident rows found. Check this is the Master sheet export.';
+        statusEl.className = 'status err';
+        return;
+      }
+      statusEl.textContent = `Loaded ${residents.length} residents.`;
+      statusEl.className = 'status ok';
+      populateWings();
+    },
+    error: function(err) {
+      const statusEl = document.getElementById('loadStatus');
+      statusEl.textContent = 'Could not read that file: ' + err.message;
+      statusEl.className = 'status err';
+    }
+  });
+});
+
+function populateWings() {
+  const wingSelect = document.getElementById('wingSelect');
+  const wings = [...new Set(residents.map(r => r['Wing']).filter(Boolean))].sort();
+  wingSelect.innerHTML = '<option value="">All wings</option>' + wings.map(w => `<option value="${w}">${w}</option>`).join('');
+  wingSelect.disabled = false;
+  wingSelect.onchange = populateResidents;
+  populateResidents();
+}
+
+function populateResidents() {
+  const wing = document.getElementById('wingSelect').value;
+  const residentSelect = document.getElementById('residentSelect');
+  const filtered = wing ? residents.filter(r => r['Wing'] === wing) : residents;
+  residentSelect.innerHTML = filtered.map((r, i) => {
+    const idx = residents.indexOf(r);
+    return `<option value="${idx}">${r['Resident Name']}${r['Room'] ? ' (Room ' + r['Room'] + ')' : ''}</option>`;
+  }).join('');
+  residentSelect.disabled = false;
+  residentSelect.onchange = renderPoster;
+  document.getElementById('printBtn').disabled = false;
+  renderPoster();
+}
+
+function yes(r, field) {
+  return (r[field] || '').trim().toLowerCase() === 'yes';
+}
+function val(r, field) {
+  return (r[field] || '').trim();
+}
+
+function renderPoster() {
+  const idx = document.getElementById('residentSelect').value;
+  if (idx === '' || idx === undefined) return;
+  const r = residents[idx];
+
+  const sections = [];
+
+  // Toileting & Continence
+  let l = [];
+  if (yes(r, 'Continence Aid')) l.push('Uses a continence aid');
+  sections.push({ icon: '🚽', title: 'TOILETING & CONTINENCE', color: 'blue', lines: l });
+
+  // Aids & Equipment
+  l = [];
+  if (yes(r, 'Glasses')) l.push('Glasses');
+  if (yes(r, 'Upper Denture')) l.push('Upper denture');
+  if (yes(r, 'Lower Denture')) l.push('Lower denture');
+  if (yes(r, 'Hearing Aid Left')) l.push('Hearing aid (left)');
+  if (yes(r, 'Hearing Aid Right')) l.push('Hearing aid (right)');
+  if (yes(r, 'Walking Frame')) l.push('Walking frame');
+  if (yes(r, 'Wheelchair')) l.push('Wheelchair');
+  sections.push({ icon: '👓', title: 'AIDS & EQUIPMENT', color: 'green', lines: l });
+
+  // Falls & Skin Care
+  l = [];
+  if (yes(r, 'High Falls Risk')) l.push('High falls risk');
+  if (yes(r, 'Pressure Care')) l.push('Requires pressure care');
+  if (val(r, 'Turning Schedule')) l.push('Turning schedule: ' + val(r, 'Turning Schedule'));
+  if (yes(r, 'Hip Protectors')) l.push('Hip protectors');
+  if (yes(r, 'Limb Protectors')) l.push('Limb protectors');
+  sections.push({ icon: '⚠️', title: 'FALLS & SKIN CARE', color: 'orange', lines: l });
+
+  // Personal Care Routine
+  l = [];
+  if (val(r, 'Shower Days')) l.push('Showers: ' + val(r, 'Shower Days'));
+  if (val(r, 'Hair Wash Days')) l.push('Hair wash: ' + val(r, 'Hair Wash Days'));
+  if (val(r, 'Shaving Days')) l.push('Shaving: ' + val(r, 'Shaving Days'));
+  sections.push({ icon: '🚿', title: 'PERSONAL CARE ROUTINE', color: 'blue', lines: l });
+
+  // Behaviour Support
+  l = [];
+  if (val(r, 'Behaviour Alert')) l.push('Alert: ' + val(r, 'Behaviour Alert'));
+  if (val(r, 'Special Notes')) l.push('Note: ' + val(r, 'Special Notes'));
+  sections.push({ icon: '❤️', title: 'BEHAVIOUR SUPPORT', color: 'green', lines: l });
+
+  // Important Information
+  l = [];
+  if (val(r, 'Doctor')) l.push('Doctor: ' + val(r, 'Doctor'));
+  if (val(r, 'NFR Status')) l.push(val(r, 'NFR Status'));
+  if (val(r, 'Allergies')) l.push('Allergy: ' + val(r, 'Allergies'));
+  if (yes(r, 'Physio Involved')) l.push('Physio involved');
+  if (yes(r, 'Speech Pathology Involved')) l.push('Speech pathology involved');
+  if (yes(r, 'Podiatry Involved')) l.push('Podiatry involved');
+  sections.push({ icon: '📋', title: 'IMPORTANT INFORMATION', color: 'orange', lines: l });
+
+  const visibleSections = sections.filter(s => s.lines.length > 0);
+
+  const cardsHtml = visibleSections.map(s => `
+    <div class="card ${s.color}">
+      <div class="icon">${s.icon}</div>
+      <div>
+        <h3>${s.title}</h3>
+        <ul>${s.lines.map(line => `<li>${escapeHtml(line)}</li>`).join('')}</ul>
+      </div>
+    </div>
+  `).join('');
+
+  const name = val(r, 'Resident Name');
+  const preferred = val(r, 'Preferred Name');
+  const room = val(r, 'Room');
+  const wing = val(r, 'Wing');
+
+  document.getElementById('poster-wrap').innerHTML = `
+    <div class="poster">
+      <h2>My Daily Needs</h2>
+      <div class="who">For: ${escapeHtml(name)}${preferred ? ' ("' + escapeHtml(preferred) + '")' : ''}
+        ${room ? '&nbsp;&nbsp;Room: ' + escapeHtml(room) : ''}
+        ${wing ? '&nbsp;&nbsp;Wing: ' + escapeHtml(wing) : ''}
+      </div>
+      <div class="banner">Thank you for supporting me</div>
+      ${cardsHtml}
+      <div class="footer-thanks">Thank you for your care and support!</div>
+    </div>
+  `;
+}
+
+function escapeHtml(str) {
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+</script>
+</body>
+</html>
